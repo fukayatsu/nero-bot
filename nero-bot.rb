@@ -50,20 +50,38 @@ class NeroBot
   def save_mentions
     options = { count: 200 }
 
-    Twitter.mentions(options).each do |m|
-      mention = m.to_hash
+    mentions = Twitter.mentions(options).map{ |tw_mentions|
+      tw_mentions.to_hash
+    }
+
+    mentions.each do |mention|
       id_str = mention[:id_str]
       next if @mentions.find_one({id: id_str})
 
       doc = {id: id_str, data: mention, finished: false};
       @mentions.insert(doc)
     end
+
+    since_id = mentions.first[:id_str];
+
+    # TODO bot_info用にinsert or update的なものが必要
+    doc = { since_id: since_id }
+    # TODO 重複をなくす
+    if @bot_info.find_one({name: "mentions"})
+      @bot_info.update({name: "mentions"}, {"$set" => doc}) #hash roket使いたくない
+    else
+      p doc[:name] = 'mentions'
+      @bot_info.insert(doc);
+    end
   end
 
   def save_home_timeline
     options = { count: 200 }
 
-    Twitter.home_timeline(options) do |s|
+    home_timeline = Twitter.home_timeline(options)
+      .map{ |timeline| timeline.to_hash }
+
+    home_timeline.each do |s|
       status = s.to_hash
       id_str = status[:id_str]
       next if @home_tl.find_one({id: id_str})
@@ -71,6 +89,8 @@ class NeroBot
       doc = {id: id_str, data: status}
       @home_tl.insert(doc)
     end
+
+    # TODO @bot_infoのsince_idを更新
   end
 
   def create_user(tw_user)
