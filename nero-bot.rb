@@ -1,5 +1,6 @@
 #!/usr/bin/env ruby
 require 'pp'
+require 'json'
 
 #TODO bundle
 require 'twitter'
@@ -22,22 +23,51 @@ class NeroBot
       config.oauth_token_secret = setting['oauth_token_secret']
     end
 
-    @db = Mongo::Connection.new.db('nero_bot');
+    db = Mongo::Connection.new.db('nero_bot');
+    @users = db['users']
+    @mentions = db['mentions']
+    @home_tl = db['home_tl']
+    @bot_info = db['bot_info']
     # users = @db['users']
     # users.insert({hoge: "piyo"})
   end
 
-  def handle_mentions
-    Twitter.mentions.map { |mention|
-      mention.id
+  def save_mentions
+    #TODO 取得と保存に分割
+    Twitter.mentions.each do |m|
+      mention = m.to_hash
+      id_str = mention[:id_str]
+      next if @mentions.find_one({id: id_str})
+
+      doc = {id: id_str, data: mention, finished: false};
+      @mentions.insert(doc)
+    end
+  end
+
+  def save_home_timeline
+    Twitter.home_timeline.map{ |s|
+      status = s.to_hash
+      id_str = status[:id_str]
+      next if @home_tl.find_one({id: id_str})
+
+      doc = {id: id_str, data: status}
+      @home_tl.insert(doc)
     }
+  end
+
+  def create_user(tw_user)
+    id_str = tw_user[:id_str]
+    return false if @users.find_one({id: id_str})
+
+    doc = {id: id_str, data: tw_user}
+    @users.insert(doc)
   end
 
   attr_reader :config
 end
 
 bot = NeroBot.new
-pp bot.handle_mentions
+bot.save_home_timeline
 # pp Twitter.home_timeline.map{ |status|
 #   status.user.name + " : " + status.text
 # }
