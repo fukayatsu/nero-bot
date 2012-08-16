@@ -1,4 +1,17 @@
 #!/usr/bin/env ruby
+
+# 登録とか
+#   前回以降のメンション取得
+#     (@nero_bot set:23-06)   ... 寝る時間=つぶやかない時間をセット
+#     (@nero_bot unfollow)    ... 使うのをやめる
+#     (@nero_bot snooze)      ... 当日は一時停止
+#     条件に合えば設定登録、フォロー開始
+#
+# 監視
+#   前回以降のHomeタイムライン読み込み
+#     条件に合えばメンション飛ばす
+#     3回やってダメだったらアンフォロー or snooze
+
 require 'pp'
 require 'json'
 
@@ -6,9 +19,12 @@ require 'json'
 require 'twitter'
 require 'mongo'
 
+SETTING_FILE = File.join(File.expand_path(File.dirname(__FILE__)), '.env')
+
 class NeroBot
-  def initialize
-    setting_list = open('.env').each.map { |line|
+  def initialize(setting_file = SETTING_FILE)
+    setting_file
+    setting_list = open(setting_file).each.map { |line|
       set = line.chomp.split('#')[0].split('=')
       set.size == 2 ? set : nil
     }.compact.flatten
@@ -28,13 +44,13 @@ class NeroBot
     @mentions = db['mentions']
     @home_tl = db['home_tl']
     @bot_info = db['bot_info']
-    # users = @db['users']
-    # users.insert({hoge: "piyo"})
   end
 
+  #TODO 取得と保存に分割
   def save_mentions
-    #TODO 取得と保存に分割
-    Twitter.mentions.each do |m|
+    options = { count: 200 }
+
+    Twitter.mentions(options).each do |m|
       mention = m.to_hash
       id_str = mention[:id_str]
       next if @mentions.find_one({id: id_str})
@@ -45,14 +61,16 @@ class NeroBot
   end
 
   def save_home_timeline
-    Twitter.home_timeline.map{ |s|
+    options = { count: 200 }
+
+    Twitter.home_timeline(options) do |s|
       status = s.to_hash
       id_str = status[:id_str]
       next if @home_tl.find_one({id: id_str})
 
       doc = {id: id_str, data: status}
       @home_tl.insert(doc)
-    }
+    end
   end
 
   def create_user(tw_user)
@@ -66,23 +84,11 @@ class NeroBot
   attr_reader :config
 end
 
-bot = NeroBot.new
-bot.save_home_timeline
-# pp Twitter.home_timeline.map{ |status|
-#   status.user.name + " : " + status.text
-# }
 
-# TODO
-#   sqlite
+if __FILE__ == $PROGRAM_NAME
+  #TODO テスト
 
-# 登録とか
-#   前回以降のメンション取得
-#     (@nero_bot set:23-06)   ... 寝る時間=つぶやかない時間をセット
-#     (@nero_bot unfollow)    ... 使うのをやめる
-#     (@nero_bot snooze)      ... 当日は一時停止
-#     条件に合えば設定登録、フォロー開始
-#
-# 監視
-#   前回以降のHomeタイムライン読み込み
-#     条件に合えばメンション飛ばす
-#     3回やってダメだったらアンフォロー or snooze
+  bot = NeroBot.new
+  #bot.save_home_timeline
+end
+
