@@ -23,91 +23,106 @@ SETTING_FILE = File.join(File.expand_path(File.dirname(__FILE__)), '.env')
 
 class NeroBot
   def initialize(setting_file = SETTING_FILE)
-    setting_file
-    setting_list = open(setting_file).each.map { |line|
-      set = line.chomp.split('#')[0].split('=')
-      set.size == 2 ? set : nil
-    }.compact.flatten
+    settings = load_settings setting_file
 
-    setting = Hash[*setting_list]
-
-    # TODO ここもっと綺麗に書きたい
-    Twitter.configure do |config|
-      config.consumer_key       = setting['consumer_key']
-      config.consumer_secret    = setting['consumer_secret']
-      config.oauth_token        = setting['oauth_token']
-      config.oauth_token_secret = setting['oauth_token_secret']
-    end
-
-    db = Mongo::Connection.new.db('nero_bot');
-    @users = db['users']
-    @mentions = db['mentions']
-    @home_tl = db['home_tl']
-    @bot_info = db['bot_info']
+    configure_twitter(settings)
+    configure_db
   end
 
-  #TODO 取得と保存に分割
-  def save_mentions
-    since_id = @bot_info.find_one({name: 'mentions'})['since_id'] || 1
+  def fetch_home_timeline
     options = {
       count: 200,
-      since_id: since_id
+      since_id: since_id_of('home_timeline')
     }
+    home_timeline =
+      Twitter.home_timeline(options)
+        .map{ |tw_status|
+          status = tw_status.to_hash
+          {id: status[:id_str], data: status}
+        }
 
-    mentions = Twitter.mentions(options).map{ |tw_mentions|
-      tw_mentions.to_hash
+    return if home_timeline.size == 0
+
+    insert_each_when_absent(@home_timeline, home_timeline)
+    since_id_of('home_timeline', home_timeline.first[:id])
+  end
+
+  def fetch_mentions
+    options = {
+      count: 200,
+      since_id: since_id_of('mentions')
     }
+    mentions =
+      Twitter.mentions(options)
+        .map{ |tw_mention|
+          mention = tw_mention.to_hash
+          {id: mention[:id_str], data: mention}
+        }
 
     return if mentions.size == 0
 
-    mentions.each do |mention|
-      id_str = mention[:id_str]
-      next if @mentions.find_one({id: id_str})
+    insert_each_when_absent(@mentions, mentions)
+    since_id_of('mentions', mentions.first[:id])
+  end
 
-      doc = {id: id_str, data: mention, finished: false};
-      @mentions.insert(doc)
+private
+
+  def configure_twitter(settings)
+    # ここもっと綺麗に書きたい
+    Twitter.configure do |config|
+      config.consumer_key       = settings['consumer_key']
+      config.consumer_secret    = settings['consumer_secret']
+      config.oauth_token        = settings['oauth_token']
+      config.oauth_token_secret = settings['oauth_token_secret']
     end
+  end
 
-    since_id = mentions.first[:id_str];
+  def configure_db
+    db = Mongo::Connection.new.db('nero_bot');
+    @users          = db['users']
+    @mentions       = db['mentions']
+    @home_timeline  = db['home_timeline']
+    @bot_info       = db['bot_info']
+  end
 
-    # TODO bot_info用にinsert or update的なものが必要
-    doc = { since_id: since_id }
-    # TODO 重複をなくす
-    if @bot_info.find_one({name: "mentions"})
-      @bot_info.update({name: "mentions"}, {"$set" => doc}) #hash roket使いたくない
+  def load_settings(setting_file)
+    list = open(setting_file)
+      .each
+      .map { |line|
+        set = line.chomp.split('#')[0].split('=')
+        set.size == 2 ?
+          set : nil
+      }.compact.flatten
+    Hash[*list]
+  end
+
+  def since_id_of(name, update_id = nil)
+    if (update_id)
+      condition = {name: name}
+      doc = { since_id: update_id }
+      insert_or_update(@bot_info, condition, doc)
     else
-      p doc[:name] = 'mentions'
-      @bot_info.insert(doc);
+      info = @bot_info.find_one({name: name})
+      return 1 unless info
+      info['since_id'] || 1
     end
   end
 
-  def save_home_timeline
-    options = { count: 200 }
-
-    home_timeline = Twitter.home_timeline(options)
-      .map{ |timeline| timeline.to_hash }
-
-    home_timeline.each do |s|
-      status = s.to_hash
-      id_str = status[:id_str]
-      next if @home_tl.find_one({id: id_str})
-
-      doc = {id: id_str, data: status}
-      @home_tl.insert(doc)
+  def insert_or_update(collection, condition, doc)
+    if collection.find_one condition
+      collection.update(condition, {'$set' => doc})
+    else
+      collection.insert doc.merge(condition)
     end
-
-    # TODO @bot_infoのsince_idを更新
   end
 
-  def create_user(tw_user)
-    id_str = tw_user[:id_str]
-    return false if @users.find_one({id: id_str})
-
-    doc = {id: id_str, data: tw_user}
-    @users.insert(doc)
+  def insert_each_when_absent(collection, docs)
+    docs.each do |doc|
+      next if collection.find_one({id: doc[:id]})
+      collection.insert(doc)
+    end
   end
 
-  attr_reader :config
 end
 
 
@@ -115,6 +130,8 @@ if __FILE__ == $PROGRAM_NAME
   #TODO テスト
 
   bot = NeroBot.new
-  #bot.save_home_timeline
+  #bot.fetch_mentions
+  #bot.fetch_home_timeline
+
 end
 
