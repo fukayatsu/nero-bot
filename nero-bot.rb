@@ -48,11 +48,17 @@ class NeroBot
 
   #TODO 取得と保存に分割
   def save_mentions
-    options = { count: 200 }
+    since_id = @bot_info.find_one({name: 'mentions'})['since_id'] || 1
+    options = {
+      count: 200,
+      since_id: since_id
+    }
 
     mentions = Twitter.mentions(options).map{ |tw_mentions|
       tw_mentions.to_hash
     }
+
+    return if mentions.size == 0
 
     mentions.each do |mention|
       id_str = mention[:id_str]
