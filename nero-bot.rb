@@ -36,7 +36,7 @@ class NeroBot
 
     options = {
       count: 200,
-      since_id: since_id_of(api_name)
+      since_id: since_id(api_name)
     }
 
     statuses = Twitter.method(api_name).call(options)
@@ -48,7 +48,7 @@ class NeroBot
     return 0 if statuses.size == 0
 
     insert_each_when_absent(@db[api_name], statuses)
-    since_id_of(api_name, statuses.first[:id])
+    since_id(api_name, statuses.first[:id])
   end
 
   def process_mentions
@@ -87,12 +87,12 @@ private
         # p $1, $2, $3, $4
       else
         # なにもしないでmension:sate=>done
-        mention_state_of task[:id], :done
+        mention_state task[:id], :done
       end
     end
   end
 
-  def mention_state_of mention_id, update_state = nil
+  def mention_state mention_id, update_state = nil
     mentions = @db['mentions']
     condition = {id: mention_id}
 
@@ -133,7 +133,7 @@ private
     Hash[*list]
   end
 
-  def since_id_of name, update_id = nil
+  def since_id name, update_id = nil
     bot_info = @db['bot_info']
     condition = {name: name}
 
