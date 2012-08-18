@@ -68,20 +68,22 @@ class NeroBot
     excecute_tasks tasks
   end
 
+private
+
   def excecute_tasks valid_tasks
     valid_tasks.each do |task|
       case task[:message]
       when /^stop$/
-        # その日はそれ以上監視しない
+        # TODO その日はそれ以上監視しない
 
       when /^start$/
-        # 監視の一時停止を解除、もしくはデフォルト設定で開始(00:00-6:00)
+        # TODO 監視の一時停止を解除、もしくはデフォルト設定で開始(00:00-6:00)
 
       when /^remove$/
-        # アンフォローして監視をやめる
+        # TODO アンフォローして監視をやめる
 
       when /^([0-9]{2})([0-9]{2})-([0-9]{2})([0-9]{2})$/
-        # ユーザーをフォローして、監視時間を設定
+        # TODO ユーザーをフォローして、監視時間を設定
         # p $1, $2, $3, $4
       else
         # なにもしないでmension:sate=>done
@@ -101,8 +103,6 @@ class NeroBot
       mentions.find_one(condition)['state']
     end
   end
-
-private
 
   def configure_twitter settings
     [
