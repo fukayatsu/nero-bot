@@ -1,16 +1,5 @@
 #!/usr/bin/env ruby
-
-# 登録とか
-#   前回以降のメンション取得
-#     (@nero_bot set:23-06)   ... 寝る時間=つぶやかない時間をセット
-#     (@nero_bot unfollow)    ... 使うのをやめる
-#     (@nero_bot snooze)      ... 当日は一時停止
-#     条件に合えば設定登録、フォロー開始
-#
-# 監視
-#   前回以降のHomeタイムライン読み込み
-#     条件に合えばメンション飛ばす
-#     3回やってダメだったらアンフォロー or snooze
+#coding: utf-8
 
 require 'pp'
 require 'json'
@@ -19,19 +8,26 @@ require 'json'
 require 'twitter'
 require 'mongo'
 
-SETTING_FILE = File.join(File.expand_path(File.dirname(__FILE__)), '.env')
+BASE_PATH = File.expand_path(File.dirname(__FILE__))
+SETTING_FILE = File.join(BASE_PATH, '.env')
+
+TASK_MENTION_PATTERN = /^@yoiko_ha_nero ([a-z0-9-]*)$/
 
 class NeroBot
   def initialize setting_file = SETTING_FILE
     settings = load_settings setting_file
 
-    configure_twitter(settings)
+    configure_twitter settings
     configure_db
   end
 
+  # TODO dbへの保存も行なっているのでメソッド名を修正する # もしくはブロックを受け取るようにする
   def fetch_statuses api_name
     valid_api_names = [:mentions, :home_timeline]
-    raise "invalid api name: #{api_name}" unless valid_api_names.include? api_name.to_sym
+    unless valid_api_names.include? api_name.to_sym
+      raise "invalid api name: #{api_name}"
+    end
+
     api_name = api_name.to_s
 
     options = {
@@ -42,6 +38,7 @@ class NeroBot
     statuses = Twitter.method(api_name).call(options)
       .map{ |tw_status|
         status = tw_status.to_hash
+
         { id: status[:id_str], data: status }
       }
 
@@ -52,11 +49,16 @@ class NeroBot
   end
 
   def process_mentions
-    tasks = @db['mentions'].find({state: {'$ne' => 'done'}})
+    mentions = @db['mentions']
+    tasks = mentions.find({state: {'$ne' => 'done'}})
       .map{ |mention|
         text = mention['data']['text']
-        mt = text.match(/^@yoiko_ha_nero ([a-z0-9-]*)$/)
-        next unless mt && mt.size == 2
+        mt = text.match(TASK_MENTION_PATTERN) || []
+        unless mt.size == 2
+          # パターンにマッチしなければdbから削除
+          mentions.remove(mention)
+          next
+        end
 
         message = mt[1]
         m_user = mention['data']['user']
@@ -68,32 +70,102 @@ class NeroBot
     excecute_tasks tasks
   end
 
+  def process_timeline
+    timeline = @db['home_timeline']
+    users = @db['users']
+
+    awake_users = Set.new
+
+    timeline.find({state: {'$ne' => 'done'}}).each do |status|
+      user_id = status['data']['user']['id'].to_s
+      user = users.find_one({id: user_id})
+
+      if user
+        now = Time.now.strftime("%H%M").to_i
+        if sleep_time?(now, user['start'], user['end'])
+          awake_users.push user
+        end
+      end
+    end
+
+    awake_users.each do |user|
+      screen_name = user['screen_name']
+      #TODO replyにする?
+      Twitter.update("@#{screen_name} 寝ろ")
+    end
+  end
+
 private
+
+  def sleep_time? (n_now, n_start, n_end)
+    # 0000 (now:0300)  0600
+    ((n_start < n_now) && (n_now < n_end)) ||
+
+    # 2200 (now:2300) 0600
+    ((n_end < n_start) && (n_start < n_now)) ||
+
+    # 2200 (now:0100) 0600
+    ((n_end < n_start) && (n_now < n_end))
+  end
 
   def excecute_tasks valid_tasks
     valid_tasks.each do |task|
       case task[:message]
-      when /^stop$/
-        # TODO その日はそれ以上監視しない
+      when /^([0-9]{4})-([0-9]{4})$/
+        # フォローしていなければフォロー開始
+        user = task[:user]
+        follow_user user[:id]
 
-      when /^start$/
-        # TODO 監視の一時停止を解除、もしくはデフォルト設定で開始(00:00-6:00)
+        update_user_info user, $1, $2
 
       when /^remove$/
         # TODO アンフォローして監視をやめる
+        user_id = task[:user][:id]
 
-      when /^([0-9]{2})([0-9]{2})-([0-9]{2})([0-9]{2})$/
-        # TODO ユーザーをフォローして、監視時間を設定
-        # p $1, $2, $3, $4
+        unfollow_user user_id
+        remove_user_info user_id
+
+      #when /^stop$/
+        # TODO その日はそれ以上監視しない
+      #when /^start$/
+        # TODO 監視の一時停止を解除、もしくはデフォルト設定で開始(00:00-6:00)
       else
-        # なにもしないでmension:sate=>done
-        mention_state task[:id], :done
+        # なにもしない
       end
+
+      # 処理済みにする
+      mention_state task[:id], :done
     end
   end
 
+  def unfollow_user user_id
+    Twitter.unfollow user_id.to_i
+  end
+
+  def follow_user user_id
+    Twitter.follow user_id.to_i
+  end
+
+  def remove_user_info user_id
+    @db['users'].remove({id: user_id})
+  end
+
+  def update_user_info user, t_start, t_end
+    users = @db['users']
+
+    condition = { id: user[:id] }
+    doc       = condition.merge({
+      screen_name:  user[:screen_name],
+      start:        t_start.to_i,
+      'end' =>      t_end.to_i  # TODO ここきもい
+    })
+
+    insert_or_update(users, condition, doc)
+
+  end
+
   def mention_state mention_id, update_state = nil
-    mentions = @db['mentions']
+    mentions  = @db['mentions']
     condition = {id: mention_id}
 
     if update_state
@@ -172,12 +244,11 @@ if __FILE__ == $PROGRAM_NAME
   #TODO テスト
 
   bot = NeroBot.new
+
   #bot.fetch_statuses :mentions
-  bot.process_mentions
+  #bot.process_mentions
 
   #bot.fetch_statuses :home_timeline
-  ##bot.process_home_timeline
-
-
+  bot.process_timeline
 end
 
