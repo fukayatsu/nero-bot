@@ -10,6 +10,7 @@ require 'mongo'
 
 BASE_PATH = File.expand_path(File.dirname(__FILE__))
 SETTING_FILE = File.join(BASE_PATH, '.env')
+DO_SLEEP_FILE = File.join(BASE_PATH, 'do-sleep.txt')
 
 TASK_MENTION_PATTERN = /^@yoiko_ha_nero ([a-z0-9-]*)$/
 
@@ -97,7 +98,16 @@ class NeroBot
     awake_users.each do |user|
       screen_name = user['screen_name']
       #TODO replyにする?
-      Twitter.update("@#{screen_name} 寝ろ")
+
+      exclude = last_status
+      do_sleep = open(DO_SLEEP_FILE).readlines#.shuffle.first.chomp
+        .map{ |line| line.chomp }
+        .reject{ |word| word == exclude }
+        .shuffle
+        .first
+        .chomp
+      Twitter.update("@#{screen_name} #{do_sleep}")
+      last_status do_sleep
     end
 
     statuses.size
@@ -214,7 +224,7 @@ private
 
   def since_id name, update_id = nil
     bot_info = @db['bot_info']
-    condition = {name: name}
+    condition = {name: name.to_s}
 
     if (update_id)
       # 更新
@@ -222,7 +232,27 @@ private
       insert_or_update(bot_info, condition, doc)
     else
       # 取得
-      bot_info.find_one(condition)['since_id'] || 1
+      info = bot_info.find_one(condition)
+      return 1 unless info
+
+      info['since_id']
+    end
+  end
+
+  # TODO since_idと重複している処理がある
+public
+  def last_status update_status = nil
+    bot_info = @db['bot_info']
+    condition = { name: 'last_status' }
+
+    if (update_status)
+      doc = { text: update_status }
+      insert_or_update bot_info, condition, doc
+    else
+      info = bot_info.find_one(condition)
+      return nil unless info
+
+      info['text']
     end
   end
 
