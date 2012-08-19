@@ -68,24 +68,30 @@ class NeroBot
       }.compact
 
     excecute_tasks tasks
+
+    tasks.size
   end
 
-  def process_timeline
+  def process_home_timeline
     timeline = @db['home_timeline']
     users = @db['users']
 
     awake_users = Set.new
 
-    timeline.find({state: {'$ne' => 'done'}}).each do |status|
+    statuses = timeline.find({state: {'$ne' => 'done'}}).to_a
+    statuses.each do |status|
       user_id = status['data']['user']['id'].to_s
       user = users.find_one({id: user_id})
 
       if user
         now = Time.now.strftime("%H%M").to_i
         if sleep_time?(now, user['start'], user['end'])
-          awake_users.push user
+          awake_users.add user
         end
       end
+
+      # 処理済みにする
+      status_state :home_timeline, status['id'], :done
     end
 
     awake_users.each do |user|
@@ -93,6 +99,8 @@ class NeroBot
       #TODO replyにする?
       Twitter.update("@#{screen_name} 寝ろ")
     end
+
+    statuses.size
   end
 
 private
@@ -134,7 +142,7 @@ private
       end
 
       # 処理済みにする
-      mention_state task[:id], :done
+      status_state :mentions, task[:id], :done
     end
   end
 
@@ -161,18 +169,17 @@ private
     })
 
     insert_or_update(users, condition, doc)
-
   end
 
-  def mention_state mention_id, update_state = nil
-    mentions  = @db['mentions']
-    condition = {id: mention_id}
+  def status_state collection_name, id, update_state = nil
+    collection = @db[collection_name.to_s]
+    condition = { id: id }
 
     if update_state
-      doc = { state: update_state.to_s }
-      insert_or_update(mentions, condition, doc)
+      doc = {state: update_state.to_s}
+      insert_or_update(collection, condition, doc)
     else
-      mentions.find_one(condition)['state']
+      collection.find_one(condition)['state']
     end
   end
 
@@ -245,10 +252,14 @@ if __FILE__ == $PROGRAM_NAME
 
   bot = NeroBot.new
 
-  #bot.fetch_statuses :mentions
-  #bot.process_mentions
+  puts 'start: ' + Time.now.to_s
+  bot.fetch_statuses :mentions
+  puts ' new mentions: ' + bot.process_mentions.to_s
 
-  #bot.fetch_statuses :home_timeline
-  bot.process_timeline
+  bot.fetch_statuses :home_timeline
+  puts ' new tweet: ' + bot.process_home_timeline.to_s
+
+  puts ' api remaining_hits: ' + Twitter.rate_limit_status[:remaining_hits].to_s
+  puts '  end: ' + Time.now.to_s
 end
 
