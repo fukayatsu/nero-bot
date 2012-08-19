@@ -1,4 +1,6 @@
+*.txt
 *.bak
 *.env
 *~
 DS_Store
+*.sublime-*
