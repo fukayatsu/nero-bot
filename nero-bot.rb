@@ -8,6 +8,8 @@ require 'json'
 require 'twitter'
 require 'mongo'
 
+Encoding.default_external="UTF-8"
+
 BASE_PATH = File.expand_path(File.dirname(__FILE__))
 SETTING_FILE = File.join(BASE_PATH, '.env')
 DO_SLEEP_FILE = File.join(BASE_PATH, 'do-sleep.txt')
