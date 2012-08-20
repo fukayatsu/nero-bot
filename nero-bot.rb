@@ -14,7 +14,9 @@ BASE_PATH = File.expand_path(File.dirname(__FILE__))
 SETTING_FILE = File.join(BASE_PATH, '.env')
 DO_SLEEP_FILE = File.join(BASE_PATH, 'do-sleep.txt')
 
-TASK_MENTION_PATTERN = /^@yoiko_ha_nero ([a-z0-9-]*)$/
+BOT_NAME = 'yoiko_ha_nero'
+
+TASK_MENTION_PATTERN = /^@#{BOT_NAME} ([a-z0-9-]*)$/
 
 class NeroBot
   def initialize setting_file = SETTING_FILE
@@ -79,35 +81,30 @@ class NeroBot
     timeline = @db['home_timeline']
     users = @db['users']
 
-    awake_users = Set.new
-
     statuses = timeline.find({state: {'$ne' => 'done'}}).to_a
-    statuses.each do |status|
+
+    statuses.map { |status|
+
+      status_state :home_timeline, status['id'], :done # 処理済みにする
+
       user_id = status['data']['user']['id'].to_s
-      user = users.find_one({id: user_id})
+      users.find_one({id: user_id})
 
-      if user
-        now = Time.now.strftime("%H%M").to_i
-        if sleep_time?(now, user['start'], user['end'])
-          awake_users.add user
-        end
-      end
+    }.compact.select { |user|
 
-      # 処理済みにする
-      status_state :home_timeline, status['id'], :done
-    end
+      now = Time.now.strftime("%H%M").to_i
+      sleep_time?(now, user['start'], user['end'])
 
-    awake_users.each do |user|
+    }.uniq.each do |user|
+
       screen_name = user['screen_name']
       #TODO replyにする?
 
       exclude = last_status
-      do_sleep = open(DO_SLEEP_FILE).readlines#.shuffle.first.chomp
-        .map{ |line| line.chomp }
-        .reject{ |word| word == exclude }
+      do_sleep = open(DO_SLEEP_FILE).readlines
+        .reject { |line| line.chomp == exclude }
         .shuffle
         .first
-        .chomp
       Twitter.update("@#{screen_name} #{do_sleep}")
       last_status do_sleep
     end
