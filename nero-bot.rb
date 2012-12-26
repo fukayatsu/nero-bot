@@ -88,8 +88,12 @@ class NeroBot
       status_state :home_timeline, status['id'], :done # 処理済みにする
 
       user_id = status['data']['user']['id'].to_s
-      users.find_one({id: user_id})
 
+      if users.find_one({id: user_id})
+        status['data']['user'] #screen_nameが変更された場合の応急処置
+      else
+        nil
+      end
     }.compact.select { |user|
 
       now = Time.now.strftime("%H%M").to_i
