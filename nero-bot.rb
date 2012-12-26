@@ -295,7 +295,7 @@ if __FILE__ == $PROGRAM_NAME
   bot.fetch_statuses :home_timeline
   puts ' new tweet: ' + bot.process_home_timeline.to_s
 
-  puts ' api remaining_hits: ' + Twitter.rate_limit_status[:remaining_hits].to_s
-  puts '  end: ' + Time.now.to_s
+  # puts ' api remaining_hits: ' + Twitter.rate_limit_status[:remaining_hits].to_s
+  # puts '  end: ' + Time.now.to_s
 end
 
