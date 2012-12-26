@@ -93,6 +93,7 @@ class NeroBot
       if user
         #screen_nameが変更された場合の応急処置
         user['screen_name'] = status['data']['user']['screen_name']
+        user
       else
         nil
       end
