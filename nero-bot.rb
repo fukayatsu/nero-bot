@@ -88,9 +88,11 @@ class NeroBot
       status_state :home_timeline, status['id'], :done # 処理済みにする
 
       user_id = status['data']['user']['id'].to_s
+      user = users.find_one({id: user_id})
 
-      if users.find_one({id: user_id})
-        status['data']['user'] #screen_nameが変更された場合の応急処置
+      if user
+        #screen_nameが変更された場合の応急処置
+        user['screen_name'] = status['data']['user']['screen_name']
       else
         nil
       end
